@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useActiveAccount } from "thirdweb/react";
+import { useSignInPrompt } from '../contexts/SignInPromptContext';
 import CreateModal from '../components/CreateModal';
 import AbstractBackground from '../components/AbstractBackground';
 import { motion } from 'framer-motion';
@@ -10,12 +12,20 @@ interface HomeProps {
 const Home: React.FC<HomeProps> = ({ navigate }) => {
   const [prompt, setPrompt] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const account = useActiveAccount();
+  const { triggerSignInPrompt } = useSignInPrompt();
 
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();
-    if (prompt.trim()) {
-      setIsModalOpen(true);
+    if (!prompt.trim()) return;
+
+    // Check if user is signed in
+    if (!account) {
+      triggerSignInPrompt();
+      return;
     }
+
+    setIsModalOpen(true);
   };
 
   return (
