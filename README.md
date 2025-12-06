@@ -44,6 +44,7 @@ Aarika is a neo-brutalist marketplace where you can **post creative requests** a
 
 - Node.js 18+
 - npm or yarn
+- [Thirdweb Account](https://thirdweb.com/dashboard) (for wallet integration)
 
 ### Installation
 
@@ -54,8 +55,28 @@ cd aarika-webapp
 
 # Install dependencies
 npm install
+```
 
-# Start the development server
+### Environment Variables
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```env
+# Required - Get from https://thirdweb.com/dashboard
+VITE_THIRDWEB_CLIENT_ID=your_client_id_here
+```
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_THIRDWEB_CLIENT_ID` | ✅ | Thirdweb Client ID for wallet authentication |
+
+### Running Locally
+
+```bash
+# Recommended: validates env vars before starting
+make local
+
+# Or run directly
 npm run dev
 ```
 
