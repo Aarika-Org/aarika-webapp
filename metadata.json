@@ -1,0 +1,5 @@
+{
+  "name": "Aarika WebApp",
+  "description": "A trust-minimized competition platform on Avalanche using x402 payments and Privy authentication.",
+  "requestFramePermissions": []
+}

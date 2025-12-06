@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>x402 Competition Protocol</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Space Grotesk', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            'neo-pink': '#ff90e8',
+            'neo-yellow': '#ffc900',
+            'neo-green': '#27E8A7',
+            'neo-blue': '#3290FF',
+            'neo-black': '#000000',
+            'neo-white': '#ffffff',
+            'neo-bg': '#ffffff',
+            'neo-dark-bg': '#1a1a1a',
+            'neo-dark-surface': '#2a2a2a',
+            'neo-dark-text': '#ffffff',
+          },
+          boxShadow: {
+            'neo': '4px 4px 0px 0px #000000',
+            'neo-sm': '2px 2px 0px 0px #000000',
+            'neo-lg': '8px 8px 0px 0px #000000',
+          },
+          animation: {
+            'marquee': 'marquee 25s linear infinite',
+          },
+          keyframes: {
+            marquee: {
+              '0%': { transform: 'translateX(0%)' },
+              '100%': { transform: 'translateX(-100%)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #ffffff;
+      color: #000000;
+      overflow-x: hidden;
+    }
+
+    /* Neo-Brutalist Grid */
+    .bg-grid {
+      background-size: 40px 40px;
+      background-image: linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+      mask-image: radial-gradient(circle at center, black 60%, transparent 100%);
+    }
+
+    .neo-border {
+      border: 2px solid #000000;
+    }
+
+    .neo-button {
+      background-color: #ff90e8;
+      color: #000000;
+      border: 2px solid #000000;
+      box-shadow: 4px 4px 0px 0px #000000;
+      transition: all 0.2s ease;
+    }
+
+    .neo-button:hover {
+      transform: translate(-2px, -2px);
+      box-shadow: 6px 6px 0px 0px #000000;
+    }
+
+    .neo-button:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px 0px #000000;
+    }
+
+    .neo-input {
+      background-color: #ffffff;
+      border: 2px solid #000000;
+      box-shadow: 4px 4px 0px 0px #000000;
+      color: #000000;
+    }
+
+    .neo-input:focus {
+      box-shadow: 6px 6px 0px 0px #ff90e8;
+      outline: none;
+      border-color: #000000;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
