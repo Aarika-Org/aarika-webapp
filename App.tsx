@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { ThirdwebProvider } from "thirdweb/react";
 import { StatsProvider } from './contexts/StatsContext';
+import { SignInPromptProvider } from './contexts/SignInPromptContext';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import Explore from './pages/Explore';
@@ -33,11 +35,15 @@ const App: React.FC = () => {
   };
 
   return (
-    <StatsProvider>
-      <Layout navigate={navigate} currentPath={route}>
-        {renderPage()}
-      </Layout>
-    </StatsProvider>
+    <ThirdwebProvider>
+      <SignInPromptProvider>
+        <StatsProvider>
+          <Layout navigate={navigate} currentPath={route}>
+            {renderPage()}
+          </Layout>
+        </StatsProvider>
+      </SignInPromptProvider>
+    </ThirdwebProvider>
   );
 };
 
