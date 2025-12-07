@@ -173,17 +173,27 @@ const CreateModal: React.FC<CreateModalProps> = ({ initialPrompt, onClose, navig
       console.log('Amount (smallest unit):', amountInSmallestUnit);
       console.log('Nonce:', nonce);
 
+      // Build EIP-712 domain strictly from backend x402 requirements
+      const accepts0 = paymentInfo.accepts?.[0];
+      const chainIdFromNetwork = Number((accepts0?.network || '').split(':')[1] || avalancheFuji.id);
+      const verifyingContract = (accepts0?.asset as `0x${string}`) || (USDC_CONTRACT_ADDRESS as `0x${string}`);
+
       // EIP-712 typed data for TransferWithAuthorization
       const typedData = {
         types: TRANSFER_WITH_AUTHORIZATION_TYPES,
         primaryType: 'TransferWithAuthorization' as const,
-        domain: USDC_DOMAIN,
+        domain: {
+          name: 'USD Coin',
+          version: '2',
+          chainId: chainIdFromNetwork,
+          verifyingContract,
+        },
         message: {
           from: account.address as `0x${string}`,
           to: payToAddress as `0x${string}`,
-          value: BigInt(amountInSmallestUnit),
-          validAfter: BigInt(validAfter),
-          validBefore: BigInt(validBefore),
+          value: amountInSmallestUnit,
+          validAfter: validAfter,
+          validBefore: validBefore,
           nonce: nonce,
         },
       };
@@ -210,12 +220,8 @@ const CreateModal: React.FC<CreateModalProps> = ({ initialPrompt, onClose, navig
       const signature = await account.signTypedData(typedData);
       console.log('Signature received:', signature);
 
-      // Normalize signature for Avalanche Fuji (chainId 43113)
-      const normalizedSignature = normalizeSignatureV(signature, avalancheFuji.id);
-      console.log('Normalized signature:', normalizedSignature);
-
       addLog('Thirdweb', 'Signature Obtained', {
-        signature: normalizedSignature.slice(0, 20) + '...',
+        signature: signature.slice(0, 20) + '...',
         status: 'signed'
       });
 
@@ -225,7 +231,7 @@ const CreateModal: React.FC<CreateModalProps> = ({ initialPrompt, onClose, navig
         scheme: 'exact',
         network: network || `eip155:${avalancheFuji.id}`,
         payload: {
-          signature: normalizedSignature,
+          signature: signature,
           authorization: {
             from: account.address,
             to: payToAddress,

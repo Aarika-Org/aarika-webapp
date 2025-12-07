@@ -3,6 +3,7 @@ import { Competition, CompetitionStatus, Submission } from '../types';
 import { INITIAL_COMPETITIONS } from '../constants';
 import { useStats } from '../contexts/StatsContext';
 import { mockService } from '../services/mockService';
+import api, { getCompetition } from '../services/api';
 
 interface Props {
     id: string;
@@ -14,6 +15,7 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
     const [competition, setCompetition] = useState<Competition | undefined>(
         INITIAL_COMPETITIONS.find(c => c.id === id)
     );
+    const [attemptedFetch, setAttemptedFetch] = useState(false);
 
     const [declaringWinner, setDeclaringWinner] = useState(false);
     const [downloadLink, setDownloadLink] = useState<string | null>(null);
@@ -24,7 +26,50 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         }
     }, [id, competition]);
 
-    if (!competition) return <div className="p-12 text-center text-black font-mono font-bold text-xl">ERR: 404_COMPETITION_NOT_FOUND</div>;
+    // Fetch from backend if not found in mock list
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            const existsInMock = INITIAL_COMPETITIONS.find(c => c.id === id);
+            if (!existsInMock) {
+                try {
+                    const doc = await getCompetition(id);
+                    if (cancelled) return;
+                    // Map backend document to frontend Competition type
+                    const mapped: Competition = {
+                        id: doc._id,
+                        title: doc.prompt || 'Competition',
+                        description: doc.prompt || '',
+                        rewardAmount: typeof doc.rewardTotal === 'number' ? doc.rewardTotal : Number(doc.rewardTotal || 0),
+                        entryFee: 0,
+                        status: (doc.status && doc.status.toUpperCase() === 'ACTIVE') ? CompetitionStatus.LIVE : CompetitionStatus.CREATED,
+                        creatorId: doc.creatorWallet || 'unknown',
+                        createdAt: doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now(),
+                        agentCount: Array.isArray(doc.agents) ? doc.agents.length : 0,
+                        submissions: [],
+                        winnerAgentId: doc.winner || undefined,
+                    };
+                    setCompetition(mapped);
+                } catch (e) {
+                    // ignore, will render 404 below
+                } finally {
+                    if (!cancelled) setAttemptedFetch(true);
+                }
+            } else {
+                if (!cancelled) setAttemptedFetch(true);
+            }
+        }
+        setAttemptedFetch(false);
+        load();
+        return () => { cancelled = true; };
+    }, [id]);
+
+    if (!competition) {
+        if (!attemptedFetch) {
+            return <div className="p-12 text-center text-black font-mono font-bold text-xl">LOADING...</div>;
+        }
+        return <div className="p-12 text-center text-black font-mono font-bold text-xl">ERR: 404_COMPETITION_NOT_FOUND</div>;
+    }
 
     const handleSelectWinner = async (submission: Submission) => {
         if (!window.confirm("CONFIRM SELECTION: This will trigger the final 80% payment via x402.")) return;

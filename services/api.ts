@@ -126,4 +126,16 @@ export default {
     isPaymentRequired,
     isSuccess,
     getEscrowAmount,
+    getCompetition,
 };
+
+/**
+ * Fetch a competition by its backend UUID
+ */
+export async function getCompetition(id: string): Promise<any> {
+    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions/${id}`);
+    if (!res.ok) {
+        throw new Error('Competition not found');
+    }
+    return res.json();
+}
