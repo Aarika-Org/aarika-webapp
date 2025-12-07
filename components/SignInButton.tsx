@@ -1,27 +1,35 @@
 import React from 'react';
 import { ConnectButton } from "thirdweb/react";
-import { inAppWallet, createWallet } from "thirdweb/wallets";
-import { avalanche } from "thirdweb/chains";
+import { inAppWallet } from "thirdweb/wallets";
+import { avalancheFuji } from "thirdweb/chains";
 import { thirdwebClient } from "../lib/thirdweb";
 
+// Configure wallets with ERC-4337 account abstraction - social logins only
 const wallets = [
     inAppWallet({
         auth: {
             options: ["email", "google", "apple"],
         },
+        // Enable smart wallet (ERC-4337) for in-app wallet
+        smartAccount: {
+            chain: avalancheFuji,
+            sponsorGas: true, // Thirdweb sponsors gas fees
+        },
     }),
-    createWallet("io.metamask"),
-    createWallet("com.coinbase.wallet"),
-    createWallet("io.rabby"),
-    createWallet("me.rainbow"),
 ];
+
+// Account abstraction configuration for ConnectButton
+const accountAbstraction = {
+    chain: avalancheFuji,
+    sponsorGas: true, // Thirdweb sponsors gas fees
+};
 
 const SignInButton: React.FC = () => {
     return (
         <ConnectButton
             client={thirdwebClient}
             wallets={wallets}
-            chain={avalanche}
+            chain={avalancheFuji}
             theme="light"
             connectButton={{
                 label: "Sign In",

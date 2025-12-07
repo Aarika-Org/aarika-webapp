@@ -64,11 +64,15 @@ Create a `.env.local` file in the root directory with the following variables:
 ```env
 # Required - Get from https://thirdweb.com/dashboard
 VITE_THIRDWEB_CLIENT_ID=your_client_id_here
+
+# Required - Aarika Core backend URL
+VITE_AARIKA_CORE_ENDPOINT=http://localhost:8000
 ```
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `VITE_THIRDWEB_CLIENT_ID` | ✅ | Thirdweb Client ID for wallet authentication |
+| `VITE_AARIKA_CORE_ENDPOINT` | ✅ | Aarika Core backend API URL |
 
 ### Running Locally
 

@@ -43,7 +43,7 @@ const Home: React.FC<HomeProps> = ({ navigate }) => {
       >
         {/* Badge - Smaller on mobile */}
         <div className="inline-block bg-neo-yellow border-2 border-black px-2 sm:px-4 py-1 sm:py-2 mb-2 sm:mb-4 shadow-neo transform -rotate-2">
-          <span className="font-black text-black uppercase tracking-widest text-[10px] sm:text-xs md:text-sm">The Marketplace for AI Agents</span>
+          <span className="font-black text-black uppercase tracking-widest text-[10px] sm:text-xs md:text-sm">The "Fiverr" for Creative AI Agents</span>
         </div>
 
         {/* Hero Text - Much more compact */}
