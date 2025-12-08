@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Competition, CompetitionStatus, Submission } from '../types';
 import { INITIAL_COMPETITIONS } from '../constants';
 import { useStats } from '../contexts/StatsContext';
-import { mockService } from '../services/mockService';
-import api, { getCompetition } from '../services/api';
+import { useActiveAccount } from 'thirdweb/react';
+import { avalancheFuji } from 'thirdweb/chains';
+import api, { getCompetition, selectWinner, PaymentRequirement, getDeliveryStatus } from '../services/api';
 
 interface Props {
     id: string;
@@ -16,9 +17,23 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         INITIAL_COMPETITIONS.find(c => c.id === id)
     );
     const [attemptedFetch, setAttemptedFetch] = useState(false);
+    const [agentsById, setAgentsById] = useState<Record<string, any>>({});
 
     const [declaringWinner, setDeclaringWinner] = useState(false);
     const [downloadLink, setDownloadLink] = useState<string | null>(null);
+    const [viewing, setViewing] = useState<Submission | null>(null);
+    const account = useActiveAccount();
+    const [confirming, setConfirming] = useState<{ open: boolean; submission: Submission | null }>(() => ({ open: false, submission: null }));
+
+    // Confirmation modal handlers (component scope)
+    const openConfirm = (submission: Submission) => setConfirming({ open: true, submission });
+    const closeConfirm = () => setConfirming({ open: false, submission: null });
+    const confirmProceed = async () => {
+        if (!confirming.submission) return;
+        const sub = confirming.submission;
+        closeConfirm();
+        await handleSelectWinner(sub);
+    };
 
     useEffect(() => {
         if (competition?.status === CompetitionStatus.COMPLETED && !downloadLink) {
@@ -33,23 +48,49 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
             const existsInMock = INITIAL_COMPETITIONS.find(c => c.id === id);
             if (!existsInMock) {
                 try {
-                    const doc = await getCompetition(id);
+                    if (!account?.address || typeof account.signMessage !== 'function') { setAttemptedFetch(true); return; }
+                    const ts = Math.floor(Date.now() / 1000).toString();
+                    const message = `AARIKA_GET_COMPETITION\naddress:${account.address.toLowerCase()}\ncompetition:${id}\nts:${ts}`;
+                    const signature = await account.signMessage({ message });
+                    const doc = await getCompetition(id, { address: account.address, signature, timestamp: ts });
                     if (cancelled) return;
                     // Map backend document to frontend Competition type
+                    const toMs = (d: any) => d ? new Date(d.$date || d).getTime() : Date.now();
+                    const toGatewayUrl = (cid?: string) => cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : '';
+                    const mappedSubs: Submission[] = Array.isArray(doc.agents)
+                        ? doc.agents
+                            .filter((a: any) => a.submission && a.submission.previewCid)
+                            .map((a: any) => ({
+                                id: a.submission.commitment || a.submission.agentId,
+                                agentId: a.agentId || a.submission.agentId,
+                                previewUrl: toGatewayUrl(a.submission.previewCid),
+                                timestamp: toMs(a.submission.submittedAt),
+                            }))
+                        : [];
                     const mapped: Competition = {
                         id: doc._id,
                         title: doc.prompt || 'Competition',
                         description: doc.prompt || '',
                         rewardAmount: typeof doc.rewardTotal === 'number' ? doc.rewardTotal : Number(doc.rewardTotal || 0),
                         entryFee: 0,
-                        status: (doc.status && doc.status.toUpperCase() === 'ACTIVE') ? CompetitionStatus.LIVE : CompetitionStatus.CREATED,
+                        status: (doc.status && doc.status.toUpperCase() === 'ACTIVE') ? CompetitionStatus.LIVE : (doc.status && doc.status.toUpperCase() === 'COMPLETED') ? CompetitionStatus.COMPLETED : CompetitionStatus.CREATED,
                         creatorId: doc.creatorWallet || 'unknown',
-                        createdAt: doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now(),
+                        createdAt: toMs(doc.createdAt),
                         agentCount: Array.isArray(doc.agents) ? doc.agents.length : 0,
-                        submissions: [],
+                        submissions: mappedSubs,
                         winnerAgentId: doc.winner || undefined,
                     };
                     setCompetition(mapped);
+                    if (Array.isArray(doc.agents)) {
+                        const map: Record<string, any> = {};
+                        for (const a of doc.agents) {
+                            const key = a.agentId || a.submission?.agentId;
+                            if (key) map[key] = a;
+                        }
+                        setAgentsById(map);
+                    } else {
+                        setAgentsById({});
+                    }
                 } catch (e) {
                     // ignore, will render 404 below
                 } finally {
@@ -62,7 +103,7 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         setAttemptedFetch(false);
         load();
         return () => { cancelled = true; };
-    }, [id]);
+    }, [id, account?.address]);
 
     if (!competition) {
         if (!attemptedFetch) {
@@ -72,19 +113,119 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
     }
 
     const handleSelectWinner = async (submission: Submission) => {
-        if (!window.confirm("CONFIRM SELECTION: This will trigger the final 80% payment via x402.")) return;
+        if (!competition) return;
+        if (!account?.address) {
+            alert('Please connect your wallet first');
+            return;
+        }
 
         setDeclaringWinner(true);
-        const result = await mockService.selectWinner(competition.id, submission.agentId, competition.rewardAmount, addLog);
+        try {
+            // First attempt: expect 402 with payment requirements
+            const initial = await selectWinner({ competitionId: competition.id, winningAgentId: submission.agentId });
+            if (initial.status === 402) {
+                const pay = initial.data as PaymentRequirement;
+                const accepts0 = pay.accepts?.[0];
+                const payToAddress = accepts0?.payTo as `0x${string}`;
+                const amount = accepts0?.maxAmountRequired as string;
+                const network = accepts0?.network || `eip155:${avalancheFuji.id}`;
+                if (!payToAddress || !amount) throw new Error('Invalid payment requirements');
 
-        setCompetition(prev => prev ? {
-            ...prev,
-            status: CompetitionStatus.COMPLETED,
-            winnerAgentId: submission.agentId
-        } : undefined);
+                // Build ERC-3009 typed data and sign
+                const now = Math.floor(Date.now() / 1000);
+                const validAfter = now.toString();
+                const validBefore = (now + 172800).toString();
+                const nonce = (() => {
+                    const bytes = new Uint8Array(32);
+                    crypto.getRandomValues(bytes);
+                    return ('0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')) as `0x${string}`;
+                })();
 
-        setDownloadLink(result.downloadUrl);
-        setDeclaringWinner(false);
+                const chainIdFromNetwork = Number((network || '').split(':')[1] || avalancheFuji.id);
+                const verifyingContract = (accepts0?.asset as `0x${string}`) || ('0x5425890298aed601595a70AB815c96711a31Bc65' as `0x${string}`);
+
+                const typedData = {
+                    types: {
+                        TransferWithAuthorization: [
+                            { name: 'from', type: 'address' },
+                            { name: 'to', type: 'address' },
+                            { name: 'value', type: 'uint256' },
+                            { name: 'validAfter', type: 'uint256' },
+                            { name: 'validBefore', type: 'uint256' },
+                            { name: 'nonce', type: 'bytes32' },
+                        ],
+                    },
+                    primaryType: 'TransferWithAuthorization' as const,
+                    domain: {
+                        name: 'USD Coin',
+                        version: '2',
+                        chainId: chainIdFromNetwork,
+                        verifyingContract,
+                    },
+                    message: {
+                        from: account.address as `0x${string}`,
+                        to: payToAddress,
+                        value: amount,
+                        validAfter,
+                        validBefore,
+                        nonce,
+                    },
+                };
+
+                if (typeof account.signTypedData !== 'function') throw new Error('Wallet does not support signTypedData');
+                const signature = await account.signTypedData(typedData);
+
+                const paymentPayload = {
+                    x402Version: pay.x402Version || 1,
+                    scheme: 'exact',
+                    network,
+                    payload: {
+                        signature,
+                        authorization: {
+                            from: account.address,
+                            to: payToAddress,
+                            value: amount,
+                            validAfter,
+                            validBefore,
+                            nonce,
+                        },
+                    },
+                };
+                const paymentHeader = btoa(JSON.stringify(paymentPayload));
+
+                const confirmed = await selectWinner({ competitionId: competition.id, winningAgentId: submission.agentId }, paymentHeader);
+                if (confirmed.status !== 200) {
+                    const err = confirmed.data as any;
+                    throw new Error((err && (err.error || err.detail)) || 'Winner selection failed');
+                }
+
+                const okData = confirmed.data as any;
+                setCompetition(prev => prev ? { ...prev, status: CompetitionStatus.COMPLETED, winnerAgentId: submission.agentId } : prev);
+                if (okData.downloadUrl) {
+                    setDownloadLink(okData.downloadUrl);
+                } else {
+                    // fallback poll
+                    try {
+                        for (let i = 0; i < 10; i++) {
+                            const s = await getDeliveryStatus(competition.id);
+                            if (s.ready && s.downloadUrl) { setDownloadLink(s.downloadUrl); break; }
+                            await new Promise(r => setTimeout(r, 1500));
+                        }
+                    } catch { /* ignore */ }
+                }
+            } else if (initial.status === 200) {
+                const okData = initial.data as any;
+                setCompetition(prev => prev ? { ...prev, status: CompetitionStatus.COMPLETED, winnerAgentId: submission.agentId } : prev);
+                if (okData.downloadUrl) setDownloadLink(okData.downloadUrl);
+            } else {
+                const err = initial.data as any;
+                throw new Error((err && (err.error || err.detail)) || 'Unexpected response');
+            }
+        } catch (e) {
+            alert(e instanceof Error ? e.message : 'Failed to select winner');
+        } finally {
+            setDeclaringWinner(false);
+        }
     };
 
     return (
@@ -107,6 +248,99 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
                 </button>
             </div>
 
+            {viewing && (
+                <div className="fixed inset-0 z-50">
+                    <div className="absolute inset-0 bg-black/70" onClick={() => setViewing(null)}></div>
+                    <div className="absolute inset-0 flex items-center justify-center p-4" onClick={() => setViewing(null)}>
+                        <div className="bg-white border-4 border-black shadow-neo-lg max-w-5xl w-full max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between p-4 border-b-4 border-black">
+                                <div className="flex items-center gap-3">
+                                    {(() => {
+                                        const ag = (agentsById as any)[viewing.agentId] || {};
+                                        const short = (addr?: string) => addr ? `${addr.slice(0,6)}...${addr.slice(-4)}` : 'unknown';
+                                        return (
+                                            <>
+                                                <span className="px-2 py-1 border-2 border-black bg-neo-yellow font-mono text-xs font-black uppercase">Submission</span>
+                                                <span className="px-2 py-1 border-2 border-black bg-white font-mono text-xs">{ag.name || viewing.agentId}</span>
+                                                <span className="px-2 py-1 border-2 border-black bg-white font-mono text-xs">{short(ag.wallet)}</span>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                                <button className="border-2 border-black bg-white px-3 py-1 font-black uppercase text-xs hover:bg-neo-pink" onClick={() => setViewing(null)}>Close</button>
+                            </div>
+                            <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="border-2 border-black bg-gray-50">
+                                    <img src={viewing.previewUrl} alt="Preview" className="w-full h-auto object-contain" />
+                                </div>
+                                <div className="border-2 border-black p-4 bg-white">
+                                    {(() => {
+                                        const ag = (agentsById as any)[viewing.agentId] || {};
+                                        const sub = ag.submission || {};
+                                        const row = (label: string, value?: string, isLink?: boolean) => (
+                                            <div className="flex items-start justify-between gap-3 py-2 border-b border-gray-200">
+                                                <span className="font-mono text-xs font-bold uppercase text-gray-600">{label}</span>
+                                                {isLink && value ? (
+                                                    <a className="font-mono text-xs text-black underline break-all" href={`https://gateway.pinata.cloud/ipfs/${value}`} target="_blank" rel="noreferrer">{value}</a>
+                                                ) : (
+                                                    <span className="font-mono text-xs text-black break-all">{value || '—'}</span>
+                                                )}
+                                            </div>
+                                        );
+                                        return (
+                                            <>
+                                                {row('Agent', ag.name || viewing.agentId)}
+                                                {row('Wallet', ag.wallet)}
+                                                {row('Status', ag.status)}
+                                                {row('Committed Tx', sub.commitTx)}
+                                                {row('Preview Tx', sub.previewTx)}
+                                                {row('Preview CID', sub.previewCid, true)}
+                                                {row('Commitment', sub.commitment)}
+                                                {row('Submitted At', new Date(viewing.timestamp).toLocaleString())}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {confirming.open && confirming.submission && (
+                <div className="fixed inset-0 z-50">
+                    <div className="absolute inset-0 bg-black/70" onClick={closeConfirm}></div>
+                    <div className="absolute inset-0 flex items-center justify-center p-4" onClick={closeConfirm}>
+                        <div className="bg-white border-4 border-black shadow-neo-lg max-w-xl w-full" onClick={(e) => e.stopPropagation()}>
+                            <div className="p-6 border-b-4 border-black">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="px-2 py-1 border-2 border-black bg-neo-pink font-mono text-xs font-black uppercase">Finale</span>
+                                    <span className="font-mono text-xs text-gray-600 font-bold uppercase tracking-widest">Confirm Winner Selection</span>
+                                </div>
+                                <h3 className="text-3xl font-black tracking-tight uppercase leading-snug text-black">Crown the Champion</h3>
+                                <p className="mt-3 text-black font-mono text-sm font-bold leading-relaxed">
+                                    This action will trigger the remaining 80% payment via x402 and unlock the original asset for delivery.
+                                </p>
+                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="sm:col-span-2 border-2 border-black bg-gray-50 p-3">
+                                        <div className="text-[10px] font-black uppercase text-gray-600">Winning Agent</div>
+                                        <div className="font-mono text-sm text-black break-all">{confirming.submission.agentId}</div>
+                                    </div>
+                                    <div className="border-2 border-black bg-neo-yellow p-3">
+                                        <div className="text-[10px] font-black uppercase text-black">Reward Remainder</div>
+                                        <div className="font-mono text-lg font-black text-black">${(competition.rewardAmount * 0.9).toFixed(2)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-6 flex gap-3">
+                                <button onClick={closeConfirm} className="flex-1 border-4 border-black bg-white text-black font-black uppercase tracking-widest py-3 hover:bg-gray-100">Cancel</button>
+                                <button onClick={confirmProceed} className="flex-1 border-4 border-black bg-neo-green text-black font-black uppercase tracking-widest py-3 hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-neo-lg transition-all">Confirm & Pay</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Hero Section */}
             <div className="bg-white border-4 border-black p-8 md:p-12 mb-16 relative overflow-hidden shadow-neo-lg">
                 <div className="flex flex-col md:flex-row justify-between items-start gap-8 relative z-10">
@@ -125,6 +359,12 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
                         <p className="text-black font-medium leading-relaxed max-w-3xl text-xl border-l-4 border-black pl-6">
                             {competition.description}
                         </p>
+                        <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
+                            <span className="font-mono font-bold uppercase text-gray-600">Creator</span>
+                            <span className="border-2 border-black px-2 py-1 bg-white shadow-neo-sm font-mono text-black">{competition.creatorId}</span>
+                            <span className="font-mono font-bold uppercase text-gray-600 ml-4">Entries</span>
+                            <span className="border-2 border-black px-2 py-1 bg-neo-yellow shadow-neo-sm font-mono text-black">{competition.agentCount}</span>
+                        </div>
                     </div>
 
                     <div className="bg-neo-yellow border-4 border-black p-6 min-w-[240px] shadow-neo transform rotate-2">
@@ -168,7 +408,7 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
                                 : 'border-black hover:-translate-y-2 hover:shadow-neo'
                                 }`}>
                                 {/* Image Container */}
-                                <div className="relative aspect-video bg-gray-100 overflow-hidden border-b-4 border-black">
+                                <div className="relative aspect-video bg-gray-100 overflow-hidden border-b-4 border-black cursor-zoom-in" onClick={() => setViewing(sub)}>
                                     <img
                                         src={sub.previewUrl}
                                         alt="Submission"
@@ -194,14 +434,23 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
 
                                 {/* Details & Actions */}
                                 <div className="p-6">
-                                    <div className="flex justify-between items-center mb-6 font-mono text-xs text-black uppercase font-bold">
-                                        <span className="bg-gray-200 px-2 py-1 border border-black">{sub.agentId}</span>
-                                        <span>{new Date(sub.timestamp).toLocaleTimeString()}</span>
-                                    </div>
+                                    {(() => {
+                                        const ag = agentsById[sub.agentId] || {};
+                                        const short = (addr?: string) => addr ? `${addr.slice(0,6)}...${addr.slice(-4)}` : 'unknown';
+                                        return (
+                                            <div className="flex justify-between items-center mb-6 font-mono text-xs text-black uppercase font-bold">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="bg-gray-200 px-2 py-1 border border-black">{ag.name || 'Agent'}</span>
+                                                    <span className="px-2 py-1 border border-black bg-white">{short(ag.wallet)}</span>
+                                                </div>
+                                                <span>{new Date(sub.timestamp).toLocaleTimeString()}</span>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {competition.status !== CompetitionStatus.COMPLETED && (
                                         <button
-                                            onClick={() => handleSelectWinner(sub)}
+                                            onClick={() => openConfirm(sub)}
                                             disabled={declaringWinner}
                                             className="w-full border-4 border-black bg-white text-black text-sm font-black py-4 uppercase tracking-widest hover:bg-neo-pink hover:shadow-neo-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                                         >

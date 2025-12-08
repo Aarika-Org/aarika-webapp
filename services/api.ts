@@ -29,6 +29,35 @@ export interface PaymentRequirement {
     error: string;
 }
 
+/**
+ * Select a winner. Follows the x402 payment flow similarly to createCompetition.
+ */
+export async function selectWinner(
+    params: SelectWinnerRequest,
+    paymentHeader?: string
+): Promise<{ status: number; data: PaymentRequirement | SelectWinnerResponse | ApiError }> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+    if (paymentHeader) headers['X-PAYMENT'] = paymentHeader;
+
+    try {
+        const response = await fetch(`${AARIKA_CORE_ENDPOINT}/select-winner`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(params),
+        });
+        const data = await response.json();
+        return { status: response.status, data };
+    } catch (error) {
+        console.error('API Error:', error);
+        return {
+            status: 500,
+            data: { error: error instanceof Error ? error.message : 'Network error' },
+        };
+    }
+}
+
 export interface CreateCompetitionRequest {
     prompt: string;
     rewardAmount: number;
@@ -45,6 +74,23 @@ export interface CreateCompetitionResponse {
 export interface ApiError {
     error: string;
     code?: string;
+}
+
+// Winner selection
+export interface SelectWinnerRequest {
+    competitionId: string;
+    winningAgentId: string;
+}
+
+export interface SelectWinnerResponse {
+    status: string;
+    competitionId: string;
+    winnerAgentId: string;
+    declareTx?: string;
+    notifyTx?: string;
+    payoutTx?: string;
+    completeTx?: string;
+    downloadUrl?: string | null;
 }
 
 /**
@@ -127,15 +173,57 @@ export default {
     isSuccess,
     getEscrowAmount,
     getCompetition,
+    getCompetitions,
+    selectWinner,
 };
 
 /**
  * Fetch a competition by its backend UUID
  */
-export async function getCompetition(id: string): Promise<any> {
-    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions/${id}`);
+export interface AuthHeaders {
+    address: string;
+    signature: string;
+    timestamp: string; // seconds since epoch as string
+}
+
+export async function getCompetition(id: string, auth?: AuthHeaders): Promise<any> {
+    const headers: Record<string, string> = {};
+    if (auth) {
+        headers['x-wallet-address'] = auth.address;
+        headers['x-signature'] = auth.signature;
+        headers['x-timestamp'] = auth.timestamp;
+    }
+    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions/${id}`, { headers });
     if (!res.ok) {
         throw new Error('Competition not found');
+    }
+    return res.json();
+}
+
+/**
+ * Fetch all competitions
+ */
+export async function getCompetitions(auth?: AuthHeaders): Promise<any[]> {
+    const headers: Record<string, string> = {};
+    if (auth) {
+        headers['x-wallet-address'] = auth.address;
+        headers['x-signature'] = auth.signature;
+        headers['x-timestamp'] = auth.timestamp;
+    }
+    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions`, { headers });
+    if (!res.ok) {
+        throw new Error('Failed to fetch competitions');
+    }
+    return res.json();
+}
+
+/**
+ * Poll delivery status for a completed competition
+ */
+export async function getDeliveryStatus(competitionId: string): Promise<{ ready: boolean; downloadUrl?: string }> {
+    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/delivery-status?competitionId=${encodeURIComponent(competitionId)}`);
+    if (!res.ok) {
+        throw new Error('Failed to fetch delivery status');
     }
     return res.json();
 }
