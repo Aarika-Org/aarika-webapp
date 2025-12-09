@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useStats } from '../contexts/StatsContext';
 
 const StatsSidebar: React.FC = () => {
-  const { isOpen, toggleStats, logs, clearLogs } = useStats();
+  const { isOpen, toggleStats, logs } = useStats();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,7 +22,6 @@ const StatsSidebar: React.FC = () => {
           <h2 className="text-black font-black uppercase tracking-widest text-xs">Protocol Events</h2>
         </div>
         <div className="flex space-x-4">
-          <button onClick={clearLogs} className="text-[10px] text-black font-bold hover:text-white uppercase border-2 border-black px-2 bg-white hover:bg-black transition-colors">Clear</button>
           <button onClick={toggleStats} className="text-black font-bold hover:text-neo-pink text-lg">✕</button>
         </div>
       </div>
@@ -35,7 +34,9 @@ const StatsSidebar: React.FC = () => {
             <p className="text-xs uppercase tracking-widest font-bold">Awaiting on-chain activity...</p>
           </div>
         )}
-        {[...logs].reverse().map((log) => (
+        {[...logs].reverse().map((log) => {
+          const explorerUrl = (log as any)?.details?.smartContract?.explorerUrl || (log as any)?.details?.explorerUrl;
+          return (
           <div key={log.id} className="border-2 border-black p-3 relative group shadow-neo-sm bg-white hover:translate-x-1 transition-transform">
             {/* Timeline dot */}
             <div className={`absolute -left-[9px] top-4 w-3 h-3 border-2 border-black ${log.source === 'Contract' ? 'bg-neo-pink' : 'bg-neo-blue'
@@ -60,10 +61,15 @@ const StatsSidebar: React.FC = () => {
                 <pre className="text-[10px] text-black font-mono leading-relaxed">
                   {JSON.stringify(log.details, null, 2)}
                 </pre>
+                {explorerUrl && (
+                  <div className="mt-2">
+                    <a href={explorerUrl} target="_blank" rel="noreferrer" className="inline-block text-[10px] font-bold uppercase border-2 border-black bg-white px-2 py-1 hover:bg-neo-yellow">View on Explorer</a>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        ))}
+        )})}
         <div ref={endRef} />
       </div>
 

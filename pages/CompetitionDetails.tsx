@@ -4,8 +4,7 @@ import { INITIAL_COMPETITIONS } from '../constants';
 import { useStats } from '../contexts/StatsContext';
 import { useActiveAccount } from 'thirdweb/react';
 import { avalancheFuji } from 'thirdweb/chains';
-import api, { getCompetition, selectWinner, PaymentRequirement, getDeliveryStatus } from '../services/api';
-import { ensureAuthToken } from '../services/auth';
+import api, { getCompetition, selectWinner, PaymentRequirement, getDeliveryStatus, getCompetitionAudit } from '../services/api';
 
 interface Props {
     id: string;
@@ -25,6 +24,17 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
     const [viewing, setViewing] = useState<Submission | null>(null);
     const account = useActiveAccount();
     const [confirming, setConfirming] = useState<{ open: boolean; submission: Submission | null }>(() => ({ open: false, submission: null }));
+    const [auditLoadedForId, setAuditLoadedForId] = useState<string | null>(null);
+
+    const CORE_ENDPOINT = (import.meta as any).env?.VITE_AARIKA_CORE_ENDPOINT || 'http://localhost:8000';
+
+    const normalizeUrl = (u?: string | null) => {
+        if (!u) return u as any;
+        const s = u.trim();
+        if (s.startsWith('http://') || s.startsWith('https://')) return s;
+        if (s.startsWith('//')) return `https:${s}`;
+        return `https://${s.replace(/^\/+/, '')}`;
+    };
 
     // Confirmation modal handlers (component scope)
     const openConfirm = (submission: Submission) => setConfirming({ open: true, submission });
@@ -36,11 +46,25 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         await handleSelectWinner(sub);
     };
 
+    // If completed but link not yet available, poll backend delivery-status
     useEffect(() => {
-        if (competition?.status === CompetitionStatus.COMPLETED && !downloadLink) {
-            setDownloadLink('https://pinata.cloud/ipfs/QmFinishedAssetHash');
+        let cancelled = false;
+        async function poll() {
+            if (!competition) return;
+            if (competition.status !== CompetitionStatus.COMPLETED) return;
+            if (downloadLink) return;
+            try {
+                for (let i = 0; i < 10; i++) {
+                    const s = await getDeliveryStatus(competition.id);
+                    if (cancelled) return;
+                    if (s.ready && s.downloadUrl) { setDownloadLink(normalizeUrl(s.downloadUrl) as any); return; }
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            } catch { /* ignore */ }
         }
-    }, [id, competition]);
+        poll();
+        return () => { cancelled = true; };
+    }, [competition, downloadLink]);
 
     // Fetch from backend if not found in mock list
     useEffect(() => {
@@ -49,8 +73,6 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
             const existsInMock = INITIAL_COMPETITIONS.find(c => c.id === id);
             if (!existsInMock) {
                 try {
-                    if (!account?.address || typeof account.signMessage !== 'function') { setAttemptedFetch(true); return; }
-                    await ensureAuthToken(account.address, account.signMessage);
                     const doc = await getCompetition(id);
                     if (cancelled) return;
                     // Map backend document to frontend Competition type
@@ -80,11 +102,16 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
                         winnerAgentId: doc.winner || undefined,
                     };
                     setCompetition(mapped);
+                    if (doc.downloadUrl && typeof doc.downloadUrl === 'string' && doc.downloadUrl.includes('/download-original')) {
+                        setDownloadLink(normalizeUrl(doc.downloadUrl) as any);
+                    }
                     if (Array.isArray(doc.agents)) {
                         const map: Record<string, any> = {};
                         for (const a of doc.agents) {
                             const key = a.agentId || a.submission?.agentId;
                             if (key) map[key] = a;
+                            // Also index by backend _id to match winnerAgentId stored in DB
+                            if (a._id) map[a._id] = a;
                         }
                         setAgentsById(map);
                     } else {
@@ -102,7 +129,35 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         setAttemptedFetch(false);
         load();
         return () => { cancelled = true; };
-    }, [id, account?.address]);
+    }, [id]);
+
+    // Load audit trail into Stats sidebar logs when opened
+    useEffect(() => {
+        let cancelled = false;
+        async function loadAuditIntoSidebar() {
+            if (!isOpen) return;
+            if (auditLoadedForId === id) return; // avoid duplicates per competition
+            try {
+                const res = await getCompetitionAudit(id);
+                if (cancelled) return;
+                const events = Array.isArray(res.events) ? res.events : [];
+                if (events.length === 0) { setAuditLoadedForId(id); return; }
+                for (const ev of events) {
+                    const hasTx = ev && ev.smartContract && (ev.smartContract.transactionHash || ev.smartContract.explorerUrl);
+                    const source = hasTx ? 'Contract' : 'Backend';
+                    const eventName = String(ev.eventType || 'EVENT');
+                    const details = ev.details ? { ...ev.details, smartContract: ev.smartContract || undefined } : (ev.smartContract || {});
+                    addLog(source as any, eventName, details);
+                }
+                setAuditLoadedForId(id);
+            } catch (e) {
+                // do not spam logs on failure; sidebar has its own empty state
+                setAuditLoadedForId(id);
+            }
+        }
+        loadAuditIntoSidebar();
+        return () => { cancelled = true; };
+    }, [isOpen, id]);
 
     if (!competition) {
         if (!attemptedFetch) {
@@ -200,14 +255,14 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
 
                 const okData = confirmed.data as any;
                 setCompetition(prev => prev ? { ...prev, status: CompetitionStatus.COMPLETED, winnerAgentId: submission.agentId } : prev);
-                if (okData.downloadUrl) {
-                    setDownloadLink(okData.downloadUrl);
+                if (okData.downloadUrl && typeof okData.downloadUrl === 'string' && okData.downloadUrl.includes('/download-original')) {
+                    setDownloadLink(normalizeUrl(okData.downloadUrl) as any);
                 } else {
                     // fallback poll
                     try {
                         for (let i = 0; i < 10; i++) {
                             const s = await getDeliveryStatus(competition.id);
-                            if (s.ready && s.downloadUrl) { setDownloadLink(s.downloadUrl); break; }
+                            if (s.ready && s.downloadUrl) { setDownloadLink(normalizeUrl(s.downloadUrl) as any); break; }
                             await new Promise(r => setTimeout(r, 1500));
                         }
                     } catch { /* ignore */ }
@@ -215,7 +270,9 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
             } else if (initial.status === 200) {
                 const okData = initial.data as any;
                 setCompetition(prev => prev ? { ...prev, status: CompetitionStatus.COMPLETED, winnerAgentId: submission.agentId } : prev);
-                if (okData.downloadUrl) setDownloadLink(okData.downloadUrl);
+                if (okData.downloadUrl && typeof okData.downloadUrl === 'string' && okData.downloadUrl.includes('/download-original')) {
+                    setDownloadLink(normalizeUrl(okData.downloadUrl) as any);
+                }
             } else {
                 const err = initial.data as any;
                 throw new Error((err && (err.error || err.detail)) || 'Unexpected response');
@@ -340,6 +397,8 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
                 </div>
             )}
 
+            {/* Stats are shown in the right sidebar modal; no center panel rendering */}
+
             {/* Hero Section */}
             <div className="bg-white border-4 border-black p-8 md:p-12 mb-16 relative overflow-hidden shadow-neo-lg">
                 <div className="flex flex-col md:flex-row justify-between items-start gap-8 relative z-10">
@@ -375,14 +434,19 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
             </div>
 
             {/* Winner / Download Area */}
-            {competition.status === CompetitionStatus.COMPLETED && (
+            {(competition.status === CompetitionStatus.COMPLETED || !!competition.winnerAgentId) && (
                 <div className="bg-neo-green border-4 border-black p-8 mb-16 flex flex-col items-center text-center shadow-neo">
                     <h3 className="text-3xl font-black text-black uppercase tracking-widest mb-4">Competition Completed</h3>
                     <p className="text-black font-mono text-lg font-bold mb-8">Winner selected: {competition.winnerAgentId}</p>
-                    {downloadLink && (
-                        <a href={downloadLink} target="_blank" rel="noreferrer" className="bg-black text-white px-10 py-4 font-black uppercase hover:bg-white hover:text-black hover:border-black border-4 border-transparent transition-all shadow-neo-sm tracking-wider text-xl">
+                    {downloadLink ? (
+                        <a href={(typeof downloadLink === 'string' && downloadLink.includes('/download-original')) ? (normalizeUrl(downloadLink) as any) : `${CORE_ENDPOINT}/download-original?competitionId=${encodeURIComponent(competition.id)}`}
+                           target="_blank" rel="noreferrer" className="bg-black text-white px-10 py-4 font-black uppercase hover:bg-white hover:text-black hover:border-black border-4 border-transparent transition-all shadow-neo-sm tracking-wider text-xl">
                             Download Original Asset
                         </a>
+                    ) : (
+                        <button disabled className="bg-gray-300 text-black px-10 py-4 font-black uppercase border-4 border-black opacity-70 cursor-not-allowed tracking-wider text-xl">
+                            Preparing Download...
+                        </button>
                     )}
                 </div>
             )}

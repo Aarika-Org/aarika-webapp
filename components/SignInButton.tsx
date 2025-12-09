@@ -1,11 +1,16 @@
 import React from 'react';
 import { ConnectButton } from "thirdweb/react";
-import { inAppWallet } from "thirdweb/wallets";
+import { inAppWallet, createWallet } from "thirdweb/wallets";
 import { avalancheFuji } from "thirdweb/chains";
 import { thirdwebClient } from "../lib/thirdweb";
 
-// Configure wallets with ERC-4337 account abstraction - social logins only
+// Configure wallets: show browser wallets + in-app social login
 const wallets = [
+    // Explicit entries for popular wallets (shows "Connect wallet" if installed)
+    createWallet("io.metamask"),
+    createWallet("com.coinbase.wallet"),
+    createWallet("io.rabby"),
+    // Social login via in-app wallet (smart account)
     inAppWallet({
         auth: {
             options: ["email", "google", "apple"],

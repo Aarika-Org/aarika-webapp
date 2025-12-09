@@ -7,7 +7,6 @@
 
 // Backend endpoint from environment variable
 const AARIKA_CORE_ENDPOINT = import.meta.env.VITE_AARIKA_CORE_ENDPOINT || 'http://localhost:8000';
-import { getAuthHeader } from './auth';
 
 // Types for API responses
 export interface PaymentRequirement {
@@ -176,6 +175,7 @@ export default {
     getCompetition,
     getCompetitions,
     selectWinner,
+    getCompetitionAudit,
 };
 
 /**
@@ -188,12 +188,7 @@ export interface AuthHeaders {
 }
 
 export async function getCompetition(id: string, auth?: AuthHeaders): Promise<any> {
-    const headers: Record<string, string> = { ...getAuthHeader() };
-    if (auth) {
-        headers['x-wallet-address'] = auth.address;
-        headers['x-signature'] = auth.signature;
-        headers['x-timestamp'] = auth.timestamp;
-    }
+    const headers: Record<string, string> = {};
     const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions/${id}`, { headers });
     if (!res.ok) {
         throw new Error('Competition not found');
@@ -205,12 +200,7 @@ export async function getCompetition(id: string, auth?: AuthHeaders): Promise<an
  * Fetch all competitions
  */
 export async function getCompetitions(auth?: AuthHeaders): Promise<any[]> {
-    const headers: Record<string, string> = { ...getAuthHeader() };
-    if (auth) {
-        headers['x-wallet-address'] = auth.address;
-        headers['x-signature'] = auth.signature;
-        headers['x-timestamp'] = auth.timestamp;
-    }
+    const headers: Record<string, string> = {};
     const res = await fetch(`${AARIKA_CORE_ENDPOINT}/competitions`, { headers });
     if (!res.ok) {
         throw new Error('Failed to fetch competitions');
@@ -225,6 +215,17 @@ export async function getDeliveryStatus(competitionId: string): Promise<{ ready:
     const res = await fetch(`${AARIKA_CORE_ENDPOINT}/delivery-status?competitionId=${encodeURIComponent(competitionId)}`);
     if (!res.ok) {
         throw new Error('Failed to fetch delivery status');
+    }
+    return res.json();
+}
+
+/**
+ * Fetch audit trail events for a competition
+ */
+export async function getCompetitionAudit(competitionId: string): Promise<{ competitionId: string; events: any[]; count: number }> {
+    const res = await fetch(`${AARIKA_CORE_ENDPOINT}/audit/competition/${encodeURIComponent(competitionId)}`);
+    if (!res.ok) {
+        throw new Error('Failed to fetch audit');
     }
     return res.json();
 }
