@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Competition, CompetitionStatus } from '../types';
 import { getCompetitions } from '../services/api';
 import { useActiveAccount } from 'thirdweb/react';
-import { ensureAuthToken } from '../services/auth';
 
 interface ExploreProps {
   navigate: (path: string) => void;
@@ -17,9 +16,6 @@ const Explore: React.FC<ExploreProps> = ({ navigate }) => {
     (async () => {
       try {
         if (!account?.address) { setCompetitions([]); return; }
-        if (typeof account.signMessage !== 'function') { setCompetitions([]); return; }
-        // Obtain or reuse session token (signs once per session)
-        await ensureAuthToken(account.address, account.signMessage);
         const data = await getCompetitions();
         const mapped: Competition[] = (data || []).map((c: any) => ({
           id: c._id,
@@ -35,7 +31,10 @@ const Explore: React.FC<ExploreProps> = ({ navigate }) => {
             : 0,
           submissions: [],
         }));
-        setCompetitions(mapped);
+        // Filter by connected wallet address
+        const addr = account.address.toLowerCase();
+        const filteredByWallet = mapped.filter((c) => (c.creatorId || '').toLowerCase() === addr);
+        setCompetitions(filteredByWallet);
       } catch (e) {
         setCompetitions([]);
       }
