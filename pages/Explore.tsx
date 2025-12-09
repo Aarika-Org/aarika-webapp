@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Competition, CompetitionStatus } from '../types';
 import { getCompetitions } from '../services/api';
 import { useActiveAccount } from 'thirdweb/react';
+import { ensureAuthToken } from '../services/auth';
 
 interface ExploreProps {
   navigate: (path: string) => void;
@@ -16,11 +17,10 @@ const Explore: React.FC<ExploreProps> = ({ navigate }) => {
     (async () => {
       try {
         if (!account?.address) { setCompetitions([]); return; }
-        const ts = Math.floor(Date.now() / 1000).toString();
-        const message = `AARIKA_LIST_COMPETITIONS\naddress:${account.address.toLowerCase()}\nts:${ts}`;
         if (typeof account.signMessage !== 'function') { setCompetitions([]); return; }
-        const signature = await account.signMessage({ message });
-        const data = await getCompetitions({ address: account.address, signature, timestamp: ts });
+        // Obtain or reuse session token (signs once per session)
+        await ensureAuthToken(account.address, account.signMessage);
+        const data = await getCompetitions();
         const mapped: Competition[] = (data || []).map((c: any) => ({
           id: c._id,
           title: c.prompt,

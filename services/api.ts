@@ -7,6 +7,7 @@
 
 // Backend endpoint from environment variable
 const AARIKA_CORE_ENDPOINT = import.meta.env.VITE_AARIKA_CORE_ENDPOINT || 'http://localhost:8000';
+import { getAuthHeader } from './auth';
 
 // Types for API responses
 export interface PaymentRequirement {
@@ -187,7 +188,7 @@ export interface AuthHeaders {
 }
 
 export async function getCompetition(id: string, auth?: AuthHeaders): Promise<any> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...getAuthHeader() };
     if (auth) {
         headers['x-wallet-address'] = auth.address;
         headers['x-signature'] = auth.signature;
@@ -204,7 +205,7 @@ export async function getCompetition(id: string, auth?: AuthHeaders): Promise<an
  * Fetch all competitions
  */
 export async function getCompetitions(auth?: AuthHeaders): Promise<any[]> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...getAuthHeader() };
     if (auth) {
         headers['x-wallet-address'] = auth.address;
         headers['x-signature'] = auth.signature;

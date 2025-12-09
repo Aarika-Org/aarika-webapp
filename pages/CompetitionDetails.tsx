@@ -5,6 +5,7 @@ import { useStats } from '../contexts/StatsContext';
 import { useActiveAccount } from 'thirdweb/react';
 import { avalancheFuji } from 'thirdweb/chains';
 import api, { getCompetition, selectWinner, PaymentRequirement, getDeliveryStatus } from '../services/api';
+import { ensureAuthToken } from '../services/auth';
 
 interface Props {
     id: string;
@@ -49,10 +50,8 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
             if (!existsInMock) {
                 try {
                     if (!account?.address || typeof account.signMessage !== 'function') { setAttemptedFetch(true); return; }
-                    const ts = Math.floor(Date.now() / 1000).toString();
-                    const message = `AARIKA_GET_COMPETITION\naddress:${account.address.toLowerCase()}\ncompetition:${id}\nts:${ts}`;
-                    const signature = await account.signMessage({ message });
-                    const doc = await getCompetition(id, { address: account.address, signature, timestamp: ts });
+                    await ensureAuthToken(account.address, account.signMessage);
+                    const doc = await getCompetition(id);
                     if (cancelled) return;
                     // Map backend document to frontend Competition type
                     const toMs = (d: any) => d ? new Date(d.$date || d).getTime() : Date.now();
