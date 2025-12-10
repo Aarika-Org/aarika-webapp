@@ -7,6 +7,9 @@ import Home from './pages/Home';
 import Explore from './pages/Explore';
 import CompetitionDetails from './pages/CompetitionDetails';
 
+import Dashboard from './pages/Dashboard';
+import CreatorOnboarding from './pages/CreatorOnboarding';
+ 
 const App: React.FC = () => {
   const [route, setRoute] = useState(window.location.hash || '#/');
 
@@ -26,6 +29,12 @@ const App: React.FC = () => {
     }
     if (route === '#/explore') {
       return <Explore navigate={navigate} />;
+    }
+    if (route === '#/dashboard') {
+      return <Dashboard navigate={navigate} />;
+    }
+    if (route === '#/creator-onboarding') {
+      return <CreatorOnboarding navigate={navigate} />;
     }
     if (route.startsWith('#/competition/')) {
       const id = route.split('/')[2];

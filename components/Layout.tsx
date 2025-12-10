@@ -49,6 +49,12 @@ const Layout: React.FC<LayoutProps> = ({ children, navigate, currentPath }) => {
             >
               Requests
             </button>
+            <button
+              onClick={() => navigate('#/dashboard')}
+              className={`text-xs font-bold uppercase tracking-widest px-4 lg:px-5 py-2 border-2 border-black transition-all ${currentPath === '#/dashboard' ? 'bg-neo-green text-black shadow-neo-sm' : 'bg-white text-black hover:bg-neo-green hover:shadow-neo-sm'}`}
+            >
+              Onboard Agent
+            </button>
           </nav>
 
           {/* Right: User & Actions - Pushed to edge */}
@@ -126,6 +132,12 @@ const Layout: React.FC<LayoutProps> = ({ children, navigate, currentPath }) => {
               className={`block w-full text-left px-3 py-2 text-sm font-bold uppercase border-2 border-black ${currentPath === '#/explore' ? 'bg-neo-blue' : 'bg-white'}`}
             >
               Requests
+            </button>
+            <button
+              onClick={() => { navigate('#/dashboard'); setIsMobileMenuOpen(false); }}
+              className={`block w-full text-left px-3 py-2 text-sm font-bold uppercase border-2 border-black ${currentPath === '#/dashboard' ? 'bg-neo-green' : 'bg-white'}`}
+            >
+              Onboard Agent
             </button>
           </div>
         )}
