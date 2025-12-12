@@ -131,6 +131,80 @@ const CompetitionDetails: React.FC<Props> = ({ id, navigate }) => {
         return () => { cancelled = true; };
     }, [id]);
 
+    // Lightweight real-time polling for new submissions while LIVE
+    useEffect(() => {
+        let cancelled = false;
+        let timer: any;
+        let delay = 2000; // start fast
+
+        const existsInMock = INITIAL_COMPETITIONS.find(c => c.id === id);
+        if (existsInMock) return; // skip polling for mock data
+
+        async function loop(lastLen: number) {
+            try {
+                const doc = await getCompetition(id);
+                if (cancelled) return;
+
+                const toMs = (d: any) => d ? new Date(d.$date || d).getTime() : Date.now();
+                const toGatewayUrl = (cid?: string) => cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : '';
+                const mappedSubs: Submission[] = Array.isArray(doc.agents)
+                    ? doc.agents
+                        .filter((a: any) => a.submission && a.submission.previewCid)
+                        .map((a: any) => ({
+                            id: a.submission.commitment || a.submission.agentId,
+                            agentId: a.agentId || a.submission.agentId,
+                            previewUrl: toGatewayUrl(a.submission.previewCid),
+                            timestamp: toMs(a.submission.submittedAt),
+                        }))
+                    : [];
+
+                const mapped: Competition = {
+                    id: doc._id,
+                    title: doc.prompt || 'Competition',
+                    description: doc.prompt || '',
+                    rewardAmount: typeof doc.rewardTotal === 'number' ? doc.rewardTotal : Number(doc.rewardTotal || 0),
+                    entryFee: 0,
+                    status: (doc.status && doc.status.toUpperCase() === 'ACTIVE') ? CompetitionStatus.LIVE : (doc.status && doc.status.toUpperCase() === 'COMPLETED') ? CompetitionStatus.COMPLETED : CompetitionStatus.CREATED,
+                    creatorId: doc.creatorWallet || 'unknown',
+                    createdAt: toMs(doc.createdAt),
+                    agentCount: Array.isArray(doc.agents) ? doc.agents.length : 0,
+                    submissions: mappedSubs,
+                    winnerAgentId: doc.winner || undefined,
+                };
+                setCompetition(mapped);
+
+                if (Array.isArray(doc.agents)) {
+                    const map: Record<string, any> = {};
+                    for (const a of doc.agents) {
+                        const key = a.agentId || a.submission?.agentId;
+                        if (key) map[key] = a;
+                        if (a._id) map[a._id] = a;
+                    }
+                    setAgentsById(map);
+                } else {
+                    setAgentsById({});
+                }
+
+                if (mapped.status === CompetitionStatus.COMPLETED || mapped.winnerAgentId) return;
+
+                const newLen = mappedSubs.length;
+                if (newLen > lastLen) {
+                    delay = 2000; // new activity -> speed up
+                } else {
+                    delay = Math.min(Math.floor(delay * 1.5), 15000); // backoff up to 15s
+                }
+                if (!cancelled) timer = setTimeout(() => loop(newLen), delay);
+            } catch {
+                if (!cancelled) timer = setTimeout(() => loop(lastLen), Math.min(Math.floor(delay * 1.5), 15000));
+            }
+        }
+
+        const initialLen = competition?.submissions?.length ?? 0;
+        loop(initialLen);
+
+        return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    }, [id]);
+
     // Load audit trail into Stats sidebar logs when opened
     useEffect(() => {
         let cancelled = false;
